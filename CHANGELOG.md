@@ -25,7 +25,7 @@ a record of what was released, so renaming the project does not rewrite it.
   `.env`, made every shell command and file write the model proposed run
   unasked (in one-shot mode, with no banner). `.mentorrc.json` now accepts only
   `autoApprove: false` and fails loud on `true`; the `.env` loader ignores
-  `AUTO_APPROVE` with a warning. Use `--yes` or `AUTO_APPROVE=1` in your shell.
+  `AUTO_APPROVE` (in any letter case) with a warning. Use `--yes` or `AUTO_APPROVE=1` in your shell.
 - **A project `.env` can no longer redirect the API.** `ANTHROPIC_BASE_URL` from
   cwd's `.env` sent the user's API key and the whole conversation to a server
   of the project's choosing. It is now honoured only from the real environment.
@@ -34,8 +34,8 @@ a record of what was released, so renaming the project does not rewrite it.
   shown at the `[y/N]` prompt were written to the terminal raw, so a carriage
   return or an ANSI sequence in a model-chosen command could erase the real
   command from view (`rm -rf ~/project\r\x1b[2Kls -la` displayed as
-  `ls -la`), and a bidi override could reorder it. Control, zero-width and bidi
-  characters are now shown as visible escapes there, in tool output, in
+  `ls -la`), and a bidi override could reorder it. Control characters and every
+  invisible format character (zero-width, bidi, tag characters, ...) are now shown as visible escapes there, in tool output, in
   `ask_user` questions and in streamed assistant text.
 
 - **`read_file` no longer reads a process environment.** `/proc/self/environ`
@@ -51,7 +51,8 @@ a record of what was released, so renaming the project does not rewrite it.
   not yet present) was checked by its own harmless name and the write then
   created the key file; a new file under a linked directory slipped past the
   same way. Links are now resolved through dangling targets and missing
-  parents. The approval preview for `write_file` / `edit_file` also names the
+  parents, component by component as the kernel does, so a `..` in a link
+  target steps out of the directory a linked parent really points to. The approval preview for `write_file` / `edit_file` also names the
   real target when the path goes through a link, so approving a write to
   `docs/notes.md` cannot silently mean writing to a shell rc file.
 
