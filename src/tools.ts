@@ -158,12 +158,13 @@ export function safeRegExp(pattern: string): RegExp | null {
 // \u202e) and leaves all other text alone. Newline and tab are kept by default,
 // since a multi-line command must still read as several lines.
 
-// C0 controls except tab and newline, DEL, C1 controls, and the invisible or
-// reordering format characters: zero-width, bidi marks/embeddings/overrides/
-// isolates, word joiner, BOM, and the Arabic letter mark.
-const UNSAFE_DISPLAY =
-  // eslint-disable-next-line no-control-regex -- matching control characters is the point
-  /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+// Every control character (C0 except tab, DEL, C1), every invisible format
+// character (Unicode category Cf: zero-width spaces and joiners, bidi marks,
+// embeddings, overrides and isolates, word joiner, BOM, soft hyphen, the tag
+// characters U+E0000-E007F that can spell out hidden ASCII, ...), the line and
+// paragraph separators U+2028/U+2029, and lone surrogates. Matching by Unicode
+// category rather than by a list of ranges leaves none of these out.
+const UNSAFE_DISPLAY = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu;
 
 export function terminalSafe(text: string, opts: { keepNewlines?: boolean } = {}): string {
   const keepNewlines = opts.keepNewlines ?? true;
@@ -171,12 +172,13 @@ export function terminalSafe(text: string, opts: { keepNewlines?: boolean } = {}
   // reads as a plain newline; only a \r with more text after it is escaped.
   const src = keepNewlines ? text.replace(/\r\n/g, "\n") : text;
   return src.replace(UNSAFE_DISPLAY, (c) => {
+    if (c === "\t") return c;
     if (c === "\n") return keepNewlines ? c : "\\n";
     if (c === "\r") return "\\r";
-    const code = c.charCodeAt(0);
-    return code <= 0xff
-      ? "\\x" + code.toString(16).padStart(2, "0")
-      : "\\u" + code.toString(16).padStart(4, "0");
+    const code = c.codePointAt(0) as number;
+    if (code <= 0xff) return "\\x" + code.toString(16).padStart(2, "0");
+    if (code <= 0xffff) return "\\u" + code.toString(16).padStart(4, "0");
+    return "\\u{" + code.toString(16) + "}";
   });
 }
 

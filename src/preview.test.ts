@@ -110,3 +110,14 @@ test("toolPreview names where a relative link climbing out of a linked directory
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("terminalSafe escapes every invisible format character, not only a listed few", () => {
+  // Soft hyphen, Mongolian vowel separator, deprecated format controls, line and
+  // paragraph separators, and tag characters (invisible ASCII look-alikes).
+  assert.equal(
+    terminalSafe("a­b᠎c⁪d e f\u{E0041}\u{E0042}g"),
+    "a\\xadb\\u180ec\\u206ad\\u2028e\\u2029f\\u{e0041}\\u{e0042}g"
+  );
+  assert.equal(terminalSafe("tab\tstays"), "tab\tstays");
+  assert.equal(terminalSafe("tab\tstays", { keepNewlines: false }), "tab\tstays");
+});
