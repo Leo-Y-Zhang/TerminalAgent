@@ -102,6 +102,24 @@ test("isSensitivePath flags cloud credential files and their common naming varia
   }
 });
 
+// A process's environment is a credential file in all but name: it holds
+// ANTHROPIC_API_KEY and whatever else the shell exported. read_file needs no
+// approval, so reading it put every one of those secrets into the conversation
+// (and into any session saved from it) without the user being asked.
+test("isSensitivePath flags process environment files under /proc", () => {
+  for (const p of ["/proc/self/environ", "/proc/1/environ", "/proc/self/task/42/environ", "/PROC/SELF/ENVIRON"]) {
+    assert.equal(isSensitivePath(p), true, p);
+  }
+  assert.equal(isSensitivePath("/proc/self/status"), false);
+  assert.equal(isSensitivePath(path.resolve(os.tmpdir(), "environ")), false);
+});
+
+test("readFile refuses /proc/self/environ", { skip: process.platform !== "linux" }, () => {
+  const r = readFile("/proc/self/environ");
+  assert.equal(r.isError, true);
+  assert.match(r.output, /not permitted/);
+});
+
 test("configureExtraDenylist extends the denied filenames", () => {
   const target = path.resolve(os.tmpdir(), "company-secrets.json");
   assert.equal(isSensitivePath(target), false);

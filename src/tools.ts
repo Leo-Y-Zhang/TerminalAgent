@@ -77,6 +77,9 @@ export function isSensitivePath(resolved: string): boolean {
     if (/credentials\.json$/.test(base)) return true;
     if (/service[-_]?account/.test(base) && base.endsWith(".json")) return true;
     if (base.includes("firebase-adminsdk") && base.endsWith(".json")) return true;
+    // A process's environment (/proc/<pid>/environ, and per thread under
+    // task/) holds ANTHROPIC_API_KEY and every other exported secret.
+    if (/^\/proc\/[^/]+\/(task\/[^/]+\/)?environ$/.test(lower)) return true;
     if (DENYLIST_PREFIXES.some(p => lower === p.toLowerCase() || lower.startsWith(p.toLowerCase() + path.sep))) return true;
   }
   return false;

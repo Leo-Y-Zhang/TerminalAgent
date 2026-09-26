@@ -13,7 +13,7 @@ injected seam.
 
 The agentic loop in `src/agent.ts` never constructs a client, never prints, and
 never asks a question. It receives an `AgentContext` carrying an `LlmClient`, an
-`AgentIO` and an `execute` function — which is why 234 tests can cover the loop,
+`AgentIO` and an `execute` function — which is why 236 tests can cover the loop,
 the tools, the classifier, checkpoints, sessions, pricing, context accounting and
 compaction without a single network call or an API key.
 
@@ -220,9 +220,9 @@ sandboxing `bash` would remove the tool's reason to exist. The mitigation is the
 approval gate plus the classifier banner, and the limitation is stated in the
 README rather than glossed.
 
-## What 234 tests without a network call can cover
+## What 236 tests without a network call can cover
 
-234 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
+236 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
 every push alongside `tsc` and `eslint`. None touches the network.
 
 **Positive — legitimate use still works.** Agentic loop: single-turn text,

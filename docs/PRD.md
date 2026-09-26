@@ -75,7 +75,7 @@ the gate here is the human.
       the window is going, and compaction recovers a session that has already
       overflowed the model entirely.
 - [x] The safety-critical logic is covered by tests that never touch the network
-      — 234 of them, run in CI on every push.
+      — 236 of them, run in CI on every push.
 
 ## One user
 
@@ -122,7 +122,8 @@ sent to the API as part of the request.
 So the category that must never be sent is credentials, and that is what the
 denylist is for. `read_file`, `write_file`, `edit_file`, the `grep` walker *and*
 the write-preview reader all refuse `.env*`, `*.pem`, `.key`, `.p12`, `.pfx`,
-SSH/AWS/GPG/gh directories, and cloud service-account key shapes — matched
+SSH/AWS/GPG/gh directories, cloud service-account key shapes, and a process's
+environment under `/proc/<pid>/environ` (where the API key lives) — matched
 case-insensitively and after resolving symlinks, so a link pointing at
 `~/.ssh/id_rsa` is denied too. The preview path matters specifically: overwriting
 a credential file would otherwise print its old contents to the terminal inside

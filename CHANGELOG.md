@@ -38,6 +38,13 @@ a record of what was released, so renaming the project does not rewrite it.
   characters are now shown as visible escapes there, in tool output, in
   `ask_user` questions and in streamed assistant text.
 
+- **`read_file` no longer reads a process environment.** `/proc/self/environ`
+  (or any `/proc/<pid>/environ`) was not on the sensitive-path denylist, and
+  `read_file` needs no approval, so one tool call put `ANTHROPIC_API_KEY` and
+  every other exported secret into the conversation and any session saved from
+  it. Those files are now denied like `.env`, for `read_file` and the `grep`
+  walker alike.
+
 ### Notes
 
 - The on-disk names `.mentorrc.json`, `MENTOR.md` and `.mentor/` (sessions and
