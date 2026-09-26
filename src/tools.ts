@@ -50,29 +50,56 @@ export function configureExtraDenylist(names: string[]): void {
 
 /** The path with every symlink resolved, including in the parents of a file
  *  that does not exist yet (a new file under a symlinked directory) and a
- *  dangling link, which a write follows to create its target. */
-export function realTarget(resolved: string, depth = 0): string {
-  const rest: string[] = [];
-  let cur = resolved;
-  for (;;) {
-    try {
-      return path.join(fs.realpathSync(cur), ...rest);
-    } catch {
-      // realpath fails on a dangling link as on a missing file; tell them apart.
-      try {
-        if (depth < 40 && fs.lstatSync(cur).isSymbolicLink()) {
-          const target = path.resolve(path.dirname(cur), fs.readlinkSync(cur));
-          return path.join(realTarget(target, depth + 1), ...rest);
-        }
-      } catch {
-        /* not there at all: keep walking up */
-      }
-      const parent = path.dirname(cur);
-      if (parent === cur) return resolved; // nothing on the way exists
-      rest.unshift(path.basename(cur));
-      cur = parent;
-    }
+ *  dangling link, which a write follows to create its target.
+ *
+ *  Where realpath fails, the path is walked one component at a time, as the
+ *  kernel does. A link's target is spliced in front of the components still to
+ *  walk, so a ".." in it steps out of the directory the link REALLY points
+ *  into. Resolving the target text against the link's own directory with
+ *  path.resolve would drop "d/.." lexically, and a link "L -> d/../new" with
+ *  "d" linked elsewhere would be checked, and previewed, as a harmless
+ *  sibling of L while the write lands next to d's real target. */
+export function realTarget(resolved: string): string {
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    /* a dangling link or a path that does not exist yet: walk it */
   }
+  const root = path.parse(resolved).root;
+  let done = root;
+  let todo = resolved.slice(root.length).split(path.sep).filter(Boolean);
+  let hops = 0;
+  while (todo.length > 0) {
+    const part = todo.shift() as string;
+    if (part === ".") continue;
+    if (part === "..") {
+      done = path.dirname(done); // `done` is already free of links
+      continue;
+    }
+    const next = path.join(done, part);
+    let isLink: boolean;
+    try {
+      isLink = fs.lstatSync(next).isSymbolicLink();
+    } catch {
+      return path.join(next, ...todo); // does not exist: nothing below it can redirect
+    }
+    if (!isLink) {
+      done = next;
+      continue;
+    }
+    try {
+      done = fs.realpathSync(next); // a live link (including /proc's magic ones)
+      continue;
+    } catch {
+      /* dangling: follow its text */
+    }
+    if (++hops > 40) return path.join(next, ...todo); // a loop; the write fails with ELOOP
+    const target = fs.readlinkSync(next);
+    const targetRoot = path.parse(target).root;
+    if (targetRoot) done = targetRoot;
+    todo = [...target.slice(targetRoot.length).split(process.platform === "win32" ? /[\\/]/ : "/").filter(Boolean), ...todo];
+  }
+  return done;
 }
 
 export function isSensitivePath(resolved: string): boolean {

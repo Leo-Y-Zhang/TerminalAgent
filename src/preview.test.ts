@@ -96,3 +96,17 @@ test("toolPreview names the real target of a write through a symlink", { skip: p
   // No link, no note.
   assert.equal(toolPreview("write_file", { file_path: path.join(dir, "plain.txt") }), path.join(dir, "plain.txt"));
 });
+
+test("toolPreview names where a relative link climbing out of a linked directory lands", { skip: process.platform === "win32" }, () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "terminalagent-prev-")));
+  try {
+    fs.mkdirSync(path.join(dir, "outside", "inner"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "repo"));
+    fs.symlinkSync(path.join(dir, "outside", "inner"), path.join(dir, "repo", "d"));
+    fs.symlinkSync("d/../rcfile", path.join(dir, "repo", "notes.md"));
+    const shown = toolPreview("write_file", { file_path: path.join(dir, "repo", "notes.md") });
+    assert.ok(shown.endsWith(`(resolves to ${path.join(dir, "outside", "rcfile")})`), shown);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

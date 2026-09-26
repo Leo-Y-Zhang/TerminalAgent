@@ -11,6 +11,7 @@ import {
   readFile,
   writeFile,
   editFile,
+  realTarget,
 } from "./tools.js";
 
 function mkTmpDir(): string {
@@ -276,6 +277,46 @@ test("writeFile refuses a dangling symlink whose target is a sensitive path", { 
     assert.equal(res.isError, true);
     assert.match(res.output, /not permitted/);
     assert.equal(fs.existsSync(target), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A link's target is followed the way the kernel follows it: a ".." in it steps
+// out of the directory a linked parent REALLY points into. Resolved lexically,
+// "L -> d/../id_ed25519" with d linked into a key directory read as a harmless
+// sibling of L, so the write was allowed and created the key file.
+test("writeFile refuses a dangling link whose target climbs out of a linked directory", { skip: process.platform === "win32" }, () => {
+  const dir = fs.realpathSync(mkTmpDir());
+  try {
+    const keys = path.join(dir, "home", "keys", "sub");
+    fs.mkdirSync(keys, { recursive: true });
+    const repo = path.join(dir, "repo");
+    fs.mkdirSync(repo);
+    fs.symlinkSync(keys, path.join(repo, "d"));
+    const link = path.join(repo, "notes.md");
+    fs.symlinkSync("d/../id_ed25519", link);
+    const landing = path.join(dir, "home", "keys", "id_ed25519");
+    assert.equal(realTarget(link), landing);
+    assert.equal(isSensitivePath(link), true);
+    const res = writeFile(link, "attacker key");
+    assert.equal(res.isError, true);
+    assert.equal(fs.existsSync(landing), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("realTarget follows a chain of relative dangling links and stops on a loop", { skip: process.platform === "win32" }, () => {
+  const dir = fs.realpathSync(mkTmpDir());
+  try {
+    fs.mkdirSync(path.join(dir, "a", "b"), { recursive: true });
+    fs.symlinkSync("b/two", path.join(dir, "a", "one"));
+    fs.symlinkSync("../three", path.join(dir, "a", "b", "two"));
+    assert.equal(realTarget(path.join(dir, "a", "one")), path.join(dir, "a", "three"));
+    fs.symlinkSync("loop2", path.join(dir, "loop1"));
+    fs.symlinkSync("loop1", path.join(dir, "loop2"));
+    assert.equal(typeof realTarget(path.join(dir, "loop1")), "string");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
