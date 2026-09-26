@@ -17,6 +17,19 @@ a record of what was released, so renaming the project does not rewrite it.
   name, and the installed command (`mentor` -> `terminal-agent`) all move. After
   pulling this, re-run `npm link` if you had the old command on your PATH.
 
+### Security
+
+- **A project directory can no longer switch off confirmation.** The working
+  directory is often a repository somebody else wrote, yet an
+  `autoApprove: true` in its `.mentorrc.json`, or an `AUTO_APPROVE=1` in its
+  `.env`, made every shell command and file write the model proposed run
+  unasked (in one-shot mode, with no banner). `.mentorrc.json` now accepts only
+  `autoApprove: false` and fails loud on `true`; the `.env` loader ignores
+  `AUTO_APPROVE` with a warning. Use `--yes` or `AUTO_APPROVE=1` in your shell.
+- **A project `.env` can no longer redirect the API.** `ANTHROPIC_BASE_URL` from
+  cwd's `.env` sent the user's API key and the whole conversation to a server
+  of the project's choosing. It is now honoured only from the real environment.
+
 ### Notes
 
 - The on-disk names `.mentorrc.json`, `MENTOR.md` and `.mentor/` (sessions and

@@ -40,7 +40,8 @@ the gate here is the human.
   `ask_user`.
 - A confirmation gate on the three tools that modify the system — `bash`,
   `write_file`, `edit_file` — bypassable only by explicit opt-in (`--yes`,
-  `AUTO_APPROVE`, or config).
+  `AUTO_APPROVE` from the user's shell). Never by a file in the project
+  directory: a cloned repository's `.mentorrc.json` or `.env` cannot opt in.
 - A real unified diff before any write, not a summary line.
 - A sensitive-path denylist that config can extend but never shrink.
 - Per-model cost accounting, since the model is switchable mid-session.
@@ -74,7 +75,7 @@ the gate here is the human.
       the window is going, and compaction recovers a session that has already
       overflowed the model entirely.
 - [x] The safety-critical logic is covered by tests that never touch the network
-      — 215 of them at v2.2.0, run in CI on every push.
+      — 228 of them, run in CI on every push.
 
 ## One user
 

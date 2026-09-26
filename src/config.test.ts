@@ -12,8 +12,12 @@ function tmpDir(): string {
 // ─── parseConfigFile ──────────────────────────────────────────────────────────
 
 test("parseConfigFile reads a full config", () => {
-  const cfg = parseConfigFile('{"model":"m","maxTokens":100,"autoApprove":true,"extraDenylist":["a.json"]}');
-  assert.deepEqual(cfg, { model: "m", maxTokens: 100, autoApprove: true, extraDenylist: ["a.json"] });
+  const cfg = parseConfigFile('{"model":"m","maxTokens":100,"autoApprove":false,"extraDenylist":["a.json"]}');
+  assert.deepEqual(cfg, { model: "m", maxTokens: 100, autoApprove: false, extraDenylist: ["a.json"] });
+});
+
+test("parseConfigFile refuses autoApprove: true, since a project file must not disable confirmation", () => {
+  assert.throws(() => parseConfigFile('{"autoApprove":true}'), /autoApprove.*--yes|AUTO_APPROVE/s);
 });
 
 test("parseConfigFile accepts a partial config", () => {
@@ -91,14 +95,20 @@ test("loadConfig fails loud on an invalid MAX_TOKENS env", () => {
   assert.throws(() => loadConfig(tmpDir(), { MAX_TOKENS: "not-a-number" }), /MAX_TOKENS/);
 });
 
-test("AUTO_APPROVE env can both enable and DISABLE a config-file value", () => {
+test("AUTO_APPROVE env can both enable and DISABLE auto-approve", () => {
   const dir = tmpDir();
-  fs.writeFileSync(path.join(dir, ".mentorrc.json"), '{"autoApprove":true}');
-  // env has highest precedence in BOTH directions (safety gate can be restored)
+  fs.writeFileSync(path.join(dir, ".mentorrc.json"), '{"autoApprove":false}');
+  assert.equal(loadConfig(dir, {}).autoApprove, false); // unset keeps the file value
+  assert.equal(loadConfig(dir, { AUTO_APPROVE: "1" }).autoApprove, true);
   assert.equal(loadConfig(dir, { AUTO_APPROVE: "0" }).autoApprove, false);
   assert.equal(loadConfig(dir, { AUTO_APPROVE: "false" }).autoApprove, false);
-  assert.equal(loadConfig(dir, {}).autoApprove, true); // unset keeps the file value
-  assert.equal(loadConfig(dir, { AUTO_APPROVE: "1" }).autoApprove, true);
+});
+
+test("a project .mentorrc.json asking for autoApprove: true fails loud, whatever the env says", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, ".mentorrc.json"), '{"autoApprove":true}');
+  assert.throws(() => loadConfig(dir, {}), /autoApprove/);
+  assert.throws(() => loadConfig(dir, { AUTO_APPROVE: "1" }), /autoApprove/);
 });
 
 test("loadConfig fails loud on a malformed config file", () => {

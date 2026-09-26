@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import "dotenv/config";
 import readline from "readline";
 import Anthropic from "@anthropic-ai/sdk";
 import chalk from "chalk";
@@ -32,6 +31,7 @@ import {
   type Message,
 } from "./agent.js";
 import { VERSION } from "./version.js";
+import { loadDotenv } from "./env.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -80,6 +80,15 @@ if (cliArgs.errors.length > 0) {
   for (const e of cliArgs.errors) console.error(chalk.red(e));
   console.error(chalk.dim("Run with --help for usage."));
   process.exit(2);
+}
+
+// ─── Environment (.env in cwd; never the keys that gate what the tool may do) ─
+
+for (const key of loadDotenv(process.cwd(), process.env).refused) {
+  console.error(
+    chalk.yellow(`Ignoring ${key} from .env: it is honoured only from your shell environment, `) +
+      chalk.yellow("since a project's .env must not be able to change what this tool is allowed to do."),
+  );
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────

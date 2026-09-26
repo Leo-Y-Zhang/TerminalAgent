@@ -13,7 +13,7 @@ injected seam.
 
 The agentic loop in `src/agent.ts` never constructs a client, never prints, and
 never asks a question. It receives an `AgentContext` carrying an `LlmClient`, an
-`AgentIO` and an `execute` function — which is why 215 tests can cover the loop,
+`AgentIO` and an `execute` function — which is why 228 tests can cover the loop,
 the tools, the classifier, checkpoints, sessions, pricing, context accounting and
 compaction without a single network call or an API key.
 
@@ -28,6 +28,7 @@ what makes "checkpoint everything that reaches execute" correct.
 ```
 index.ts (impure shell)
   ├─ config.ts     defaults < .mentorrc.json < env
+  ├─ env.ts        cwd .env loader; gate-controlling keys shell-only
   ├─ cli-args.ts   pure argv parser
   ├─ agent.ts      runAgenticLoop / runOnce  ── LlmClient seam ──> Anthropic SDK
   │                                          └─ execute seam ──> checkpoints.ts ──> tools.ts
@@ -109,9 +110,13 @@ Configuration resolves in three layers of increasing precedence: built-in
 `DEFAULT_CONFIG`, then `.mentorrc.json` in cwd, then the environment (`MODEL`,
 `MAX_TOKENS`, `AUTO_APPROVE`). Every key is type-checked on the way in and throws
 a named error, so a malformed config exits 1 at startup rather than being
-ignored. `AUTO_APPROVE` is honoured in **both** directions when explicitly set,
-so a user can re-enable the confirmation gate over a config file that turned it
-off; unset or empty leaves the file's value alone.
+ignored. `AUTO_APPROVE` is honoured in **both** directions when explicitly set;
+unset or empty leaves the file's value alone. The file itself may only say
+`autoApprove: false`: it lives in the project, which is often a repository
+somebody else wrote, so `true` throws instead of turning the gate off. For the
+same reason `src/env.ts` loads cwd's `.env` without `AUTO_APPROVE` or
+`ANTHROPIC_BASE_URL` (the second would send the key and the conversation to a
+server the project chose); those two are read only from the real environment.
 
 > **NAMING.** `.mentorrc.json`, `MENTOR.md` and `.mentor/` predate the 2026-08
 > rename from Mentor and are deliberately unchanged. They are a data contract:
@@ -215,9 +220,9 @@ sandboxing `bash` would remove the tool's reason to exist. The mitigation is the
 approval gate plus the classifier banner, and the limitation is stated in the
 README rather than glossed.
 
-## What 215 tests without a network call can cover
+## What 228 tests without a network call can cover
 
-215 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
+228 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
 every push alongside `tsc` and `eslint`. None touches the network.
 
 **Positive — legitimate use still works.** Agentic loop: single-turn text,
@@ -225,7 +230,7 @@ multi-turn tool execution, approval running the tool, per-turn usage reported,
 correct stop-reason termination, all against a fake `LlmClient`. `/undo` restores
 an intact file, and `/undo turn` walks a file changed twice in one turn back to
 its original content. Config: file read, env override, and `AUTO_APPROVE`
-re-enabling the gate over a config that disabled it. And two proofs the
+switching the gate in both directions. And two proofs the
 classifier does not over-fire — `taskkill /f /im node.exe` and
 `echo del /s /q is dangerous` both rate `normal`.
 
@@ -239,7 +244,12 @@ leaves it byte-identical. Chained commands take their rating from the worst
 segment rather than the first: `rm build/tmp && rm -rf ~` and
 `del temp.txt & del /s /q C:\` both rate on their dangerous half, which is a
 regression test for a real defect where the mitigation the user relies on was the
-thing that failed. And `safeRegExp` rejects over-long and catastrophic patterns.
+thing that failed. `approval-gate.test.ts` drives the real built CLI in one-shot
+mode against a local fake of the Messages API whose model asks to run a shell
+command: the command runs with `--yes` or a shell `AUTO_APPROVE=1` (the controls)
+and does not run when the only opt-in is an `autoApprove: true` in the project's
+`.mentorrc.json` or an `AUTO_APPROVE=1` in its `.env`, both regression tests for
+a real bypass. And `safeRegExp` rejects over-long and catastrophic patterns.
 
 **Boundary — the cases that reach production.** `hostile.test.ts` covers
 malformed JSON, wrong schema version, unserialisable content blocks and

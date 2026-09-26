@@ -64,6 +64,18 @@ export function parseConfigFile(text: string): Partial<TerminalAgentConfig> {
   }
   if ("autoApprove" in obj) {
     if (typeof obj.autoApprove !== "boolean") throw new Error("Invalid config: autoApprove must be a boolean");
+    // .mentorrc.json lives in the project directory, which is often a
+    // repository somebody else wrote. Honouring `true` here let a cloned repo
+    // switch off the confirmation gate for every shell command and file write
+    // the model proposes, and in one-shot mode without so much as a banner.
+    // Only the user can opt out of confirmation, from their own shell (--yes or
+    // AUTO_APPROVE=1). `false` is harmless and still accepted.
+    if (obj.autoApprove) {
+      throw new Error(
+        "Invalid config: autoApprove: true is not accepted from .mentorrc.json, because a file in the " +
+          "project must not be able to switch off confirmation. Pass --yes or set AUTO_APPROVE=1 in your shell instead."
+      );
+    }
     out.autoApprove = obj.autoApprove;
   }
   if ("extraDenylist" in obj) {
