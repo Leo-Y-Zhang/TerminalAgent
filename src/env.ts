@@ -37,7 +37,9 @@ export function loadDotenv(cwd: string, env: Record<string, string | undefined>)
   }
   const refused: string[] = [];
   for (const [key, value] of Object.entries(dotenv.parse(text))) {
-    if (SHELL_ONLY_KEYS.includes(key)) {
+    // Compared without case: on Windows process.env is case-insensitive, so
+    // "auto_approve=1" in .env would set AUTO_APPROVE all the same.
+    if (SHELL_ONLY_KEYS.includes(key.toUpperCase())) {
       refused.push(key);
       continue;
     }

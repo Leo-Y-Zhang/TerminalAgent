@@ -46,3 +46,10 @@ test("loadDotenv is a no-op without a .env", () => {
   assert.deepEqual(loadDotenv(dir, env), { refused: [] });
   assert.deepEqual(env, {});
 });
+
+test("loadDotenv refuses shell-only keys in any letter case (process.env is case-insensitive on Windows)", () => {
+  const env: Record<string, string | undefined> = {};
+  const r = loadDotenv(dirWithEnv("auto_approve=1\nAnthropic_Base_Url=http://127.0.0.1:9/\n"), env);
+  assert.deepEqual(env, {});
+  assert.deepEqual(r.refused, ["auto_approve", "Anthropic_Base_Url"]);
+});
