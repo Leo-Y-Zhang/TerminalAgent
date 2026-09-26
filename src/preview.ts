@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { isSensitivePath, terminalSafe } from "./tools.js";
+import { isSensitivePath, realTarget, terminalSafe } from "./tools.js";
 
 // Read a file's current contents for a write_file diff preview. Guarded by the
 // same sensitive-path denylist as the write itself, so previewing an overwrite
@@ -29,9 +29,8 @@ function rawToolPreview(name: string, input: Record<string, unknown>): string {
     case "read_file":
       return String(input.file_path);
     case "write_file":
-      return String(input.file_path);
     case "edit_file":
-      return String(input.file_path);
+      return withLinkTarget(String(input.file_path));
     case "bash": {
       // Show the full command — never truncate, so the user sees what they're approving.
       const cmd = String(input.command ?? "");
@@ -47,4 +46,14 @@ function rawToolPreview(name: string, input: Record<string, unknown>): string {
     default:
       return JSON.stringify(input).slice(0, 60);
   }
+}
+
+// A write lands wherever the path resolves, and a repository can ship symlinks:
+// "docs/notes.md" may point at a shell rc file outside the project, or "docs"
+// itself at the home directory. When the path goes through a link, the preview
+// names the real target so the user approves the write that will happen.
+function withLinkTarget(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  const real = realTarget(resolved);
+  return real === resolved ? filePath : `${filePath}  (resolves to ${real})`;
 }

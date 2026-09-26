@@ -74,3 +74,25 @@ test("terminalSafe reads a CRLF line ending as a newline but escapes a bare CR",
   assert.equal(terminalSafe("safe\rrm -rf ~"), "safe\\rrm -rf ~");
   assert.equal(terminalSafe("a\r\nb", { keepNewlines: false }), "a\\r\\nb");
 });
+
+// A repository can ship a symlink. Approving a write to "docs/notes.md" must not
+// silently mean writing to wherever that link points, such as a shell rc file.
+test("toolPreview names the real target of a write through a symlink", { skip: process.platform === "win32" }, () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "terminalagent-prev-")));
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "terminalagent-outside-")));
+  fs.writeFileSync(path.join(outside, "rcfile"), "x");
+  fs.symlinkSync(path.join(outside, "rcfile"), path.join(dir, "notes.md"));
+  fs.symlinkSync(outside, path.join(dir, "docs"));
+
+  const viaFile = toolPreview("write_file", { file_path: path.join(dir, "notes.md"), content: "" });
+  assert.match(viaFile, new RegExp(`resolves to ${path.join(outside, "rcfile").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  // A new file under a symlinked directory: the link is in the parent.
+  const viaDir = toolPreview("edit_file", { file_path: path.join(dir, "docs", "new.txt") });
+  assert.match(viaDir, /resolves to /);
+  assert.ok(viaDir.includes(path.join(outside, "new.txt")));
+  // A dangling link: the write would create its target.
+  fs.symlinkSync(path.join(outside, "autostart.desktop"), path.join(dir, "readme.txt"));
+  assert.ok(toolPreview("write_file", { file_path: path.join(dir, "readme.txt") }).includes(`resolves to ${path.join(outside, "autostart.desktop")}`));
+  // No link, no note.
+  assert.equal(toolPreview("write_file", { file_path: path.join(dir, "plain.txt") }), path.join(dir, "plain.txt"));
+});

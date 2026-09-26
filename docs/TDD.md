@@ -13,7 +13,7 @@ injected seam.
 
 The agentic loop in `src/agent.ts` never constructs a client, never prints, and
 never asks a question. It receives an `AgentContext` carrying an `LlmClient`, an
-`AgentIO` and an `execute` function — which is why 236 tests can cover the loop,
+`AgentIO` and an `execute` function — which is why 238 tests can cover the loop,
 the tools, the classifier, checkpoints, sessions, pricing, context accounting and
 compaction without a single network call or an API key.
 
@@ -220,9 +220,9 @@ sandboxing `bash` would remove the tool's reason to exist. The mitigation is the
 approval gate plus the classifier banner, and the limitation is stated in the
 README rather than glossed.
 
-## What 236 tests without a network call can cover
+## What 238 tests without a network call can cover
 
-236 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
+238 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
 every push alongside `tsc` and `eslint`. None touches the network.
 
 **Positive — legitimate use still works.** Agentic loop: single-turn text,
@@ -236,8 +236,8 @@ classifier does not over-fire — `taskkill /f /im node.exe` and
 
 **Negative — the thing we prevent is prevented.** Denial of a destructive tool
 feeds `is_error` back to the model and the file is untouched. `write_file`,
-`edit_file` and `read_file` refuse sensitive paths including symlinked and
-case-variant ones; the `grep` walker skips them; `readForPreview` returns `""` so
+`edit_file` and `read_file` refuse sensitive paths including symlinked
+(dangling ones too) and case-variant ones; the `grep` walker skips them; `readForPreview` returns `""` so
 an overwritten credential file's contents never reach the terminal. `/undo`
 refuses a file edited since — `refused[0].reason` matches `/edited/i` — and
 leaves it byte-identical. Chained commands take their rating from the worst

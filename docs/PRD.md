@@ -75,7 +75,7 @@ the gate here is the human.
       the window is going, and compaction recovers a session that has already
       overflowed the model entirely.
 - [x] The safety-critical logic is covered by tests that never touch the network
-      — 236 of them, run in CI on every push.
+      — 238 of them, run in CI on every push.
 
 ## One user
 
@@ -125,7 +125,8 @@ the write-preview reader all refuse `.env*`, `*.pem`, `.key`, `.p12`, `.pfx`,
 SSH/AWS/GPG/gh directories, cloud service-account key shapes, and a process's
 environment under `/proc/<pid>/environ` (where the API key lives) — matched
 case-insensitively and after resolving symlinks, so a link pointing at
-`~/.ssh/id_rsa` is denied too. The preview path matters specifically: overwriting
+`~/.ssh/id_rsa` is denied too, even a dangling one or a new file under a linked
+directory, both of which a write would follow. The preview path matters specifically: overwriting
 a credential file would otherwise print its old contents to the terminal inside
 the diff.
 

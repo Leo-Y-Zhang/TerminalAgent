@@ -48,16 +48,39 @@ export function configureExtraDenylist(names: string[]): void {
   EXTRA_DENYLIST_NAMES = new Set(names.map((n) => n.toLowerCase()));
 }
 
+/** The path with every symlink resolved, including in the parents of a file
+ *  that does not exist yet (a new file under a symlinked directory) and a
+ *  dangling link, which a write follows to create its target. */
+export function realTarget(resolved: string, depth = 0): string {
+  const rest: string[] = [];
+  let cur = resolved;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...rest);
+    } catch {
+      // realpath fails on a dangling link as on a missing file; tell them apart.
+      try {
+        if (depth < 40 && fs.lstatSync(cur).isSymbolicLink()) {
+          const target = path.resolve(path.dirname(cur), fs.readlinkSync(cur));
+          return path.join(realTarget(target, depth + 1), ...rest);
+        }
+      } catch {
+        /* not there at all: keep walking up */
+      }
+      const parent = path.dirname(cur);
+      if (parent === cur) return resolved; // nothing on the way exists
+      rest.unshift(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
+
 export function isSensitivePath(resolved: string): boolean {
   // Resolve symlinks so a link pointing at a sensitive file cannot bypass the
-  // check. If the path does not exist yet (e.g. a new write), fall back to the
-  // resolved path as given.
-  let target = resolved;
-  try {
-    target = fs.realpathSync(resolved);
-  } catch {
-    /* path does not exist yet — check the literal path */
-  }
+  // check. That includes a dangling link and a new file under a linked
+  // directory: a write follows both, and plain realpath fails on both, which
+  // once left only the link's own harmless name to be checked.
+  const target = realTarget(resolved);
   for (const candidate of target === resolved ? [resolved] : [resolved, target]) {
     // Compare case-insensitively: Windows and macOS filesystems are
     // case-insensitive, so ".ENV" or "SECRET.PEM" must also be denied.

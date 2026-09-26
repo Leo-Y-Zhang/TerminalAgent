@@ -260,3 +260,23 @@ test("editFile refuses to edit a sensitive path", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// realpath fails on a dangling symlink exactly as on a missing file, so the
+// denylist used to check only the link's own name, and writeFileSync then
+// followed the link and CREATED the credential file it pointed at.
+test("writeFile refuses a dangling symlink whose target is a sensitive path", { skip: process.platform === "win32" }, () => {
+  const dir = mkTmpDir();
+  try {
+    const target = path.join(dir, "keys", "id_ed25519");
+    fs.mkdirSync(path.dirname(target));
+    const link = path.join(dir, "notes.md");
+    fs.symlinkSync(target, link);
+    assert.equal(isSensitivePath(link), true);
+    const res = writeFile(link, "attacker key");
+    assert.equal(res.isError, true);
+    assert.match(res.output, /not permitted/);
+    assert.equal(fs.existsSync(target), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

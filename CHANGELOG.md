@@ -45,6 +45,16 @@ a record of what was released, so renaming the project does not rewrite it.
   it. Those files are now denied like `.env`, for `read_file` and the `grep`
   walker alike.
 
+- **Symlinks can no longer steer a write past the denylist or the preview.**
+  The denylist resolved links with `realpath`, which fails on a dangling link
+  just as on a missing file, so a link `notes.md -> ~/.ssh/id_ed25519` (target
+  not yet present) was checked by its own harmless name and the write then
+  created the key file; a new file under a linked directory slipped past the
+  same way. Links are now resolved through dangling targets and missing
+  parents. The approval preview for `write_file` / `edit_file` also names the
+  real target when the path goes through a link, so approving a write to
+  `docs/notes.md` cannot silently mean writing to a shell rc file.
+
 ### Notes
 
 - The on-disk names `.mentorrc.json`, `MENTOR.md` and `.mentor/` (sessions and
