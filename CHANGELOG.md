@@ -30,6 +30,14 @@ a record of what was released, so renaming the project does not rewrite it.
   cwd's `.env` sent the user's API key and the whole conversation to a server
   of the project's choosing. It is now honoured only from the real environment.
 
+- **Approval previews can no longer be repainted.** The command, path and diff
+  shown at the `[y/N]` prompt were written to the terminal raw, so a carriage
+  return or an ANSI sequence in a model-chosen command could erase the real
+  command from view (`rm -rf ~/project\r\x1b[2Kls -la` displayed as
+  `ls -la`), and a bidi override could reorder it. Control, zero-width and bidi
+  characters are now shown as visible escapes there, in tool output, in
+  `ask_user` questions and in streamed assistant text.
+
 ### Notes
 
 - The on-disk names `.mentorrc.json`, `MENTOR.md` and `.mentor/` (sessions and

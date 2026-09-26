@@ -93,6 +93,40 @@ export function safeRegExp(pattern: string): RegExp | null {
   try { return new RegExp(pattern); } catch { return null; }
 }
 
+// ─── Terminal-safe display ───────────────────────────────────────────────────
+// Model-chosen text (a command to approve, a file path, a diff, a question, a
+// tool's output) is written to a terminal, and a terminal obeys what it is sent.
+// A carriage return or an ANSI sequence such as ESC[2K can erase what came
+// before it on the line, ESC[8m hides what follows, and a Unicode bidi override
+// displays characters in a different order from the one they run in. Any of
+// those lets the approval prompt show one command while another runs.
+//
+// terminalSafe renders every such character as a visible escape (\r, \x1b,
+// \u202e) and leaves all other text alone. Newline and tab are kept by default,
+// since a multi-line command must still read as several lines.
+
+// C0 controls except tab and newline, DEL, C1 controls, and the invisible or
+// reordering format characters: zero-width, bidi marks/embeddings/overrides/
+// isolates, word joiner, BOM, and the Arabic letter mark.
+const UNSAFE_DISPLAY =
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
+  /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+
+export function terminalSafe(text: string, opts: { keepNewlines?: boolean } = {}): string {
+  const keepNewlines = opts.keepNewlines ?? true;
+  // A CRLF line ending (Windows command output) cannot hide anything, so it
+  // reads as a plain newline; only a \r with more text after it is escaped.
+  const src = keepNewlines ? text.replace(/\r\n/g, "\n") : text;
+  return src.replace(UNSAFE_DISPLAY, (c) => {
+    if (c === "\n") return keepNewlines ? c : "\\n";
+    if (c === "\r") return "\\r";
+    const code = c.charCodeAt(0);
+    return code <= 0xff
+      ? "\\x" + code.toString(16).padStart(2, "0")
+      : "\\u" + code.toString(16).padStart(4, "0");
+  });
+}
+
 // ─── Read File ────────────────────────────────────────────────────────────────
 
 export function readFile(filePath: string, offset?: number, limit?: number): ToolResult {
@@ -338,7 +372,7 @@ export async function askUser(prompt: string): Promise<ToolResult> {
   });
 
   return new Promise((resolve) => {
-    rl.question(`\n[?] ${prompt}\n> `, (answer) => {
+    rl.question(`\n[?] ${terminalSafe(prompt)}\n> `, (answer) => {
       rl.close();
       resolve({ output: answer });
     });

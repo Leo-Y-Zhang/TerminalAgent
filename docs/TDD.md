@@ -13,7 +13,7 @@ injected seam.
 
 The agentic loop in `src/agent.ts` never constructs a client, never prints, and
 never asks a question. It receives an `AgentContext` carrying an `LlmClient`, an
-`AgentIO` and an `execute` function — which is why 228 tests can cover the loop,
+`AgentIO` and an `execute` function — which is why 234 tests can cover the loop,
 the tools, the classifier, checkpoints, sessions, pricing, context accounting and
 compaction without a single network call or an API key.
 
@@ -35,7 +35,7 @@ index.ts (impure shell)
   ├─ tools.ts      7 tools + denylist + ReDoS guard
   ├─ safety.ts     classifyCommand (pure)
   ├─ diff.ts       formatDiff (pure)
-  ├─ preview.ts    denylisted read for write previews
+  ├─ preview.ts    denylisted read for write previews; terminal-safe toolPreview
   ├─ context.ts    window table, estimates, auto-compact decision (pure)
   ├─ compact.ts    transcript render + chunked summarisation ── LlmClient seam ──>
   ├─ pricing.ts    per-family price table (pure)
@@ -220,9 +220,9 @@ sandboxing `bash` would remove the tool's reason to exist. The mitigation is the
 approval gate plus the classifier banner, and the limitation is stated in the
 README rather than glossed.
 
-## What 228 tests without a network call can cover
+## What 234 tests without a network call can cover
 
-228 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
+234 tests, `node --test` over the compiled `dist/**/*.test.js`, run in CI on
 every push alongside `tsc` and `eslint`. None touches the network.
 
 **Positive — legitimate use still works.** Agentic loop: single-turn text,
@@ -249,7 +249,9 @@ mode against a local fake of the Messages API whose model asks to run a shell
 command: the command runs with `--yes` or a shell `AUTO_APPROVE=1` (the controls)
 and does not run when the only opt-in is an `autoApprove: true` in the project's
 `.mentorrc.json` or an `AUTO_APPROVE=1` in its `.env`, both regression tests for
-a real bypass. And `safeRegExp` rejects over-long and catastrophic patterns.
+a real bypass. `toolPreview` shows `rm -rf ~/project\r\x1b[2Kls -la` with the
+carriage return and escape made visible rather than letting the terminal repaint
+it as `ls -la`, and likewise for bidi overrides in commands and paths. And `safeRegExp` rejects over-long and catastrophic patterns.
 
 **Boundary — the cases that reach production.** `hostile.test.ts` covers
 malformed JSON, wrong schema version, unserialisable content blocks and
