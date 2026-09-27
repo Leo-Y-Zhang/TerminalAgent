@@ -48,16 +48,66 @@ export function configureExtraDenylist(names: string[]): void {
   EXTRA_DENYLIST_NAMES = new Set(names.map((n) => n.toLowerCase()));
 }
 
+/** The path with every symlink resolved, including in the parents of a file
+ *  that does not exist yet (a new file under a symlinked directory) and a
+ *  dangling link, which a write follows to create its target.
+ *
+ *  Where realpath fails, the path is walked one component at a time, as the
+ *  kernel does. A link's target is spliced in front of the components still to
+ *  walk, so a ".." in it steps out of the directory the link REALLY points
+ *  into. Resolving the target text against the link's own directory with
+ *  path.resolve would drop "d/.." lexically, and a link "L -> d/../new" with
+ *  "d" linked elsewhere would be checked, and previewed, as a harmless
+ *  sibling of L while the write lands next to d's real target. */
+export function realTarget(resolved: string): string {
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    /* a dangling link or a path that does not exist yet: walk it */
+  }
+  const root = path.parse(resolved).root;
+  let done = root;
+  let todo = resolved.slice(root.length).split(path.sep).filter(Boolean);
+  let hops = 0;
+  while (todo.length > 0) {
+    const part = todo.shift() as string;
+    if (part === ".") continue;
+    if (part === "..") {
+      done = path.dirname(done); // `done` is already free of links
+      continue;
+    }
+    const next = path.join(done, part);
+    let isLink: boolean;
+    try {
+      isLink = fs.lstatSync(next).isSymbolicLink();
+    } catch {
+      return path.join(next, ...todo); // does not exist: nothing below it can redirect
+    }
+    if (!isLink) {
+      done = next;
+      continue;
+    }
+    try {
+      done = fs.realpathSync(next); // a live link (including /proc's magic ones)
+      continue;
+    } catch {
+      /* dangling: follow its text */
+    }
+    if (++hops > 40) return path.join(next, ...todo); // a loop; the write fails with ELOOP
+    const target = fs.readlinkSync(next);
+    const targetRoot = path.parse(target).root;
+    if (targetRoot) done = targetRoot;
+    todo = [...target.slice(targetRoot.length).split(process.platform === "win32" ? /[\\/]/ : "/").filter(Boolean), ...todo];
+  }
+  return done;
+}
+
 export function isSensitivePath(resolved: string): boolean {
   // Resolve symlinks so a link pointing at a sensitive file cannot bypass the
-  // check. If the path does not exist yet (e.g. a new write), fall back to the
-  // resolved path as given.
-  let target = resolved;
-  try {
-    target = fs.realpathSync(resolved);
-  } catch {
-    /* path does not exist yet — check the literal path */
-  }
+  // check. That includes a dangling link and a new file under a linked
+  // directory: a write follows both, and plain realpath fails on both, which
+  // once left only the link's own harmless name to be checked.
+  const target = realTarget(resolved);
   for (const candidate of target === resolved ? [resolved] : [resolved, target]) {
     // Compare case-insensitively: Windows and macOS filesystems are
     // case-insensitive, so ".ENV" or "SECRET.PEM" must also be denied.
@@ -77,6 +127,9 @@ export function isSensitivePath(resolved: string): boolean {
     if (/credentials\.json$/.test(base)) return true;
     if (/service[-_]?account/.test(base) && base.endsWith(".json")) return true;
     if (base.includes("firebase-adminsdk") && base.endsWith(".json")) return true;
+    // A process's environment (/proc/<pid>/environ, and per thread under
+    // task/) holds ANTHROPIC_API_KEY and every other exported secret.
+    if (/^\/proc\/[^/]+\/(task\/[^/]+\/)?environ$/.test(lower)) return true;
     if (DENYLIST_PREFIXES.some(p => lower === p.toLowerCase() || lower.startsWith(p.toLowerCase() + path.sep))) return true;
   }
   return false;
@@ -91,6 +144,42 @@ export function safeRegExp(pattern: string): RegExp | null {
   if (pattern.length > 500) return null;
   if (REDOS_PATTERNS.some(r => r.test(pattern))) return null;
   try { return new RegExp(pattern); } catch { return null; }
+}
+
+// ─── Terminal-safe display ───────────────────────────────────────────────────
+// Model-chosen text (a command to approve, a file path, a diff, a question, a
+// tool's output) is written to a terminal, and a terminal obeys what it is sent.
+// A carriage return or an ANSI sequence such as ESC[2K can erase what came
+// before it on the line, ESC[8m hides what follows, and a Unicode bidi override
+// displays characters in a different order from the one they run in. Any of
+// those lets the approval prompt show one command while another runs.
+//
+// terminalSafe renders every such character as a visible escape (\r, \x1b,
+// \u202e) and leaves all other text alone. Newline and tab are kept by default,
+// since a multi-line command must still read as several lines.
+
+// Every control character (C0 except tab, DEL, C1), every invisible format
+// character (Unicode category Cf: zero-width spaces and joiners, bidi marks,
+// embeddings, overrides and isolates, word joiner, BOM, soft hyphen, the tag
+// characters U+E0000-E007F that can spell out hidden ASCII, ...), the line and
+// paragraph separators U+2028/U+2029, and lone surrogates. Matching by Unicode
+// category rather than by a list of ranges leaves none of these out.
+const UNSAFE_DISPLAY = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu;
+
+export function terminalSafe(text: string, opts: { keepNewlines?: boolean } = {}): string {
+  const keepNewlines = opts.keepNewlines ?? true;
+  // A CRLF line ending (Windows command output) cannot hide anything, so it
+  // reads as a plain newline; only a \r with more text after it is escaped.
+  const src = keepNewlines ? text.replace(/\r\n/g, "\n") : text;
+  return src.replace(UNSAFE_DISPLAY, (c) => {
+    if (c === "\t") return c;
+    if (c === "\n") return keepNewlines ? c : "\\n";
+    if (c === "\r") return "\\r";
+    const code = c.codePointAt(0) as number;
+    if (code <= 0xff) return "\\x" + code.toString(16).padStart(2, "0");
+    if (code <= 0xffff) return "\\u" + code.toString(16).padStart(4, "0");
+    return "\\u{" + code.toString(16) + "}";
+  });
 }
 
 // ─── Read File ────────────────────────────────────────────────────────────────
@@ -338,7 +427,7 @@ export async function askUser(prompt: string): Promise<ToolResult> {
   });
 
   return new Promise((resolve) => {
-    rl.question(`\n[?] ${prompt}\n> `, (answer) => {
+    rl.question(`\n[?] ${terminalSafe(prompt)}\n> `, (answer) => {
       rl.close();
       resolve({ output: answer });
     });

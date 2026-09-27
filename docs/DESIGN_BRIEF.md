@@ -29,11 +29,19 @@ this interface is designed against.
 
 ## Refusals
 
-**Truncating a command in the approval preview.** `getToolPreview` truncates
+**Truncating a command in the approval preview.** `toolPreview` truncates
 `ask_user` to 60 characters and unknown tools to 60 characters of JSON, but the
 `bash` case returns the command **in full, always** — with an explicit comment in
 the code saying why. Truncating the one string the user is being asked to
 authorise would turn the safety gate into theatre.
+
+**Letting the preview be repainted.** For the same reason the preview passes
+through `terminalSafe`: a carriage return, an ANSI escape or a Unicode bidi
+override in a model-chosen command, path, diff or tool output is shown as a
+visible escape (`\r`, `\x1b[2K`, `\u202e`), never sent raw to the terminal,
+where it could erase or reorder what the user reads while a different command
+runs. Newlines and tabs pass through, so a multi-line command still reads as
+several lines.
 
 **A box-drawing frame around anything.** It breaks on `cmd.exe` code pages, wraps
 badly at narrow widths, and buys nothing.
@@ -106,7 +114,7 @@ Everything renders through five helpers, and a sixth would need a reason.
 | Helper | Job |
 |---|---|
 | `printDiffPreview` | The only place a diff is coloured — used by both `edit_file` and `write_file` previews *and* by `/changes` and refused `/undo`, so all four look identical |
-| `printToolCall` / `getToolPreview` | The only place a pending tool is rendered |
+| `printToolCall` / `toolPreview` | The only place a pending tool is rendered |
 | `printToolResult` | The only place a result is rendered (3 lines dim, or 5 lines red) |
 | `renderContextMeter` | The only bar in the product |
 | `formatPercent` | The only percentage formatter |

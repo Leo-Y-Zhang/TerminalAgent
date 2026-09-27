@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-import "dotenv/config";
 import readline from "readline";
 import Anthropic from "@anthropic-ai/sdk";
 import chalk from "chalk";
 import path from "path";
-import { TOOL_DEFINITIONS, executeTool, configureExtraDenylist } from "./tools.js";
+import { TOOL_DEFINITIONS, executeTool, configureExtraDenylist, terminalSafe } from "./tools.js";
 import { formatDiff } from "./diff.js";
 import { classifyCommand } from "./safety.js";
-import { readForPreview } from "./preview.js";
+import { readForPreview, toolPreview } from "./preview.js";
 import { loadConfig, loadProjectContext, type TerminalAgentConfig } from "./config.js";
 import { parseArgs } from "./cli-args.js";
 import { saveSession, loadSession, listSessions } from "./session.js";
@@ -32,6 +31,7 @@ import {
   type Message,
 } from "./agent.js";
 import { VERSION } from "./version.js";
+import { loadDotenv } from "./env.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -80,6 +80,15 @@ if (cliArgs.errors.length > 0) {
   for (const e of cliArgs.errors) console.error(chalk.red(e));
   console.error(chalk.dim("Run with --help for usage."));
   process.exit(2);
+}
+
+// ─── Environment (.env in cwd; never the keys that gate what the tool may do) ─
+
+for (const key of loadDotenv(process.cwd(), process.env).refused) {
+  console.error(
+    chalk.yellow(`Ignoring ${key} from .env: it is honoured only from your shell environment, `) +
+      chalk.yellow("since a project's .env must not be able to change what this tool is allowed to do."),
+  );
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -154,8 +163,8 @@ function printHelp() {
 }
 
 function printToolCall(name: string, input: Record<string, unknown>) {
-  const label = chalk.yellow(`[tool: ${name}]`);
-  const preview = getToolPreview(name, input);
+  const label = chalk.yellow(`[tool: ${terminalSafe(name, { keepNewlines: false })}]`);
+  const preview = toolPreview(name, input);
   process.stdout.write(`\n${label} ${chalk.dim(preview)}\n`);
 
   // Rich, colored diff preview before the user approves a file change.
@@ -176,47 +185,29 @@ function printToolCall(name: string, input: Record<string, unknown>) {
 }
 
 // Print a colored, context-folded unified diff (green additions, red removals).
+// The text is the model's, so it goes through terminalSafe like the command
+// preview; a line-ending \r (a CRLF file) is dropped first, since it cannot
+// hide anything and would otherwise mark every line of such a file.
 function printDiffPreview(oldText: string, newText: string) {
   const diff = formatDiff(oldText, newText, { context: 2 });
   if (!diff) return;
-  for (const line of diff.split("\n")) {
+  for (const raw of diff.split("\n")) {
+    const line = terminalSafe(raw.replace(/\r$/, ""));
     if (line.startsWith("+")) process.stdout.write("  " + chalk.green(line) + "\n");
     else if (line.startsWith("-")) process.stdout.write("  " + chalk.red(line) + "\n");
     else process.stdout.write("  " + chalk.dim(line) + "\n");
   }
 }
 
-function getToolPreview(name: string, input: Record<string, unknown>): string {
-  switch (name) {
-    case "read_file":
-      return String(input.file_path);
-    case "write_file":
-      return String(input.file_path);
-    case "edit_file":
-      return String(input.file_path);
-    case "bash": {
-      // Show the full command — never truncate, so the user sees what they're approving.
-      const cmd = String(input.command ?? "");
-      const cwd = input.cwd ? `  cwd: ${input.cwd}` : "";
-      return cmd + (cwd ? `\n${cwd}` : "");
-    }
-    case "glob":
-      return String(input.pattern);
-    case "grep":
-      return `/${input.pattern}/${input.include ? ` in ${input.include}` : ""}`;
-    case "ask_user":
-      return String(input.prompt).slice(0, 60);
-    default:
-      return JSON.stringify(input).slice(0, 60);
-  }
-}
-
 function printToolResult(result: { output: string; isError?: boolean }) {
+  // Tool output is whatever a file or command produced, so it is made
+  // terminal-safe before display (the model still receives it unchanged).
+  const output = terminalSafe(result.output);
   if (result.isError) {
-    const lines = result.output.split("\n").slice(0, 5).join("\n");
+    const lines = output.split("\n").slice(0, 5).join("\n");
     process.stdout.write(chalk.red(`  ✗ ${lines}\n`));
   } else {
-    const lines = result.output.split("\n");
+    const lines = output.split("\n");
     const preview = lines.slice(0, 3).join("\n");
     const suffix = lines.length > 3 ? chalk.dim(`\n  … (${lines.length} lines)`) : "";
     process.stdout.write(chalk.dim(`  ✓ ${preview}${suffix}\n`));
@@ -425,7 +416,7 @@ function buildAgentContext(
   return {
     client: llm,
     io: {
-      onText: (text) => process.stdout.write(text),
+      onText: (text) => process.stdout.write(terminalSafe(text)),
       onToolCall: (name, input) => printToolCall(name, input),
       onToolResult: (result) => printToolResult(result),
       confirm,
@@ -493,8 +484,8 @@ async function main() {
   ): Promise<boolean> =>
     new Promise((resolve) => {
       rl.question(
-        chalk.yellow(`  ⚠ Run ${name}? `) +
-          chalk.dim(getToolPreview(name, input)) +
+        chalk.yellow(`  ⚠ Run ${terminalSafe(name, { keepNewlines: false })}? `) +
+          chalk.dim(toolPreview(name, input)) +
           chalk.yellow("  [y/N] "),
         (ans) => resolve(/^y(es)?$/i.test(ans.trim()))
       );
@@ -771,7 +762,7 @@ function buildPrintContext(): AgentContext {
     io: {
       onText: (text) => process.stdout.write(text),
       onToolCall: (name, input) =>
-        process.stderr.write(chalk.yellow(`\n[tool: ${name}] `) + chalk.dim(getToolPreview(name, input)) + "\n"),
+        process.stderr.write(chalk.yellow(`\n[tool: ${terminalSafe(name, { keepNewlines: false })}] `) + chalk.dim(toolPreview(name, input)) + "\n"),
       onToolResult: (result) =>
         process.stderr.write(result.isError ? chalk.red("  ✗ tool error\n") : chalk.dim("  ✓\n")),
       confirm: async () => config.autoApprove,

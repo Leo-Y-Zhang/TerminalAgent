@@ -11,6 +11,7 @@ import {
   readFile,
   writeFile,
   editFile,
+  realTarget,
 } from "./tools.js";
 
 function mkTmpDir(): string {
@@ -100,6 +101,24 @@ test("isSensitivePath flags cloud credential files and their common naming varia
   ]) {
     assert.equal(isSensitivePath(path.resolve(os.tmpdir(), f)), true, f);
   }
+});
+
+// A process's environment is a credential file in all but name: it holds
+// ANTHROPIC_API_KEY and whatever else the shell exported. read_file needs no
+// approval, so reading it put every one of those secrets into the conversation
+// (and into any session saved from it) without the user being asked.
+test("isSensitivePath flags process environment files under /proc", () => {
+  for (const p of ["/proc/self/environ", "/proc/1/environ", "/proc/self/task/42/environ", "/PROC/SELF/ENVIRON"]) {
+    assert.equal(isSensitivePath(p), true, p);
+  }
+  assert.equal(isSensitivePath("/proc/self/status"), false);
+  assert.equal(isSensitivePath(path.resolve(os.tmpdir(), "environ")), false);
+});
+
+test("readFile refuses /proc/self/environ", { skip: process.platform !== "linux" }, () => {
+  const r = readFile("/proc/self/environ");
+  assert.equal(r.isError, true);
+  assert.match(r.output, /not permitted/);
 });
 
 test("configureExtraDenylist extends the denied filenames", () => {
@@ -238,6 +257,66 @@ test("editFile refuses to edit a sensitive path", () => {
     assert.equal(res.isError, true);
     assert.match(res.output, /not permitted/);
     assert.equal(fs.readFileSync(file, "utf-8"), "SECRET=1");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// realpath fails on a dangling symlink exactly as on a missing file, so the
+// denylist used to check only the link's own name, and writeFileSync then
+// followed the link and CREATED the credential file it pointed at.
+test("writeFile refuses a dangling symlink whose target is a sensitive path", { skip: process.platform === "win32" }, () => {
+  const dir = mkTmpDir();
+  try {
+    const target = path.join(dir, "keys", "id_ed25519");
+    fs.mkdirSync(path.dirname(target));
+    const link = path.join(dir, "notes.md");
+    fs.symlinkSync(target, link);
+    assert.equal(isSensitivePath(link), true);
+    const res = writeFile(link, "attacker key");
+    assert.equal(res.isError, true);
+    assert.match(res.output, /not permitted/);
+    assert.equal(fs.existsSync(target), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A link's target is followed the way the kernel follows it: a ".." in it steps
+// out of the directory a linked parent REALLY points into. Resolved lexically,
+// "L -> d/../id_ed25519" with d linked into a key directory read as a harmless
+// sibling of L, so the write was allowed and created the key file.
+test("writeFile refuses a dangling link whose target climbs out of a linked directory", { skip: process.platform === "win32" }, () => {
+  const dir = fs.realpathSync(mkTmpDir());
+  try {
+    const keys = path.join(dir, "home", "keys", "sub");
+    fs.mkdirSync(keys, { recursive: true });
+    const repo = path.join(dir, "repo");
+    fs.mkdirSync(repo);
+    fs.symlinkSync(keys, path.join(repo, "d"));
+    const link = path.join(repo, "notes.md");
+    fs.symlinkSync("d/../id_ed25519", link);
+    const landing = path.join(dir, "home", "keys", "id_ed25519");
+    assert.equal(realTarget(link), landing);
+    assert.equal(isSensitivePath(link), true);
+    const res = writeFile(link, "attacker key");
+    assert.equal(res.isError, true);
+    assert.equal(fs.existsSync(landing), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("realTarget follows a chain of relative dangling links and stops on a loop", { skip: process.platform === "win32" }, () => {
+  const dir = fs.realpathSync(mkTmpDir());
+  try {
+    fs.mkdirSync(path.join(dir, "a", "b"), { recursive: true });
+    fs.symlinkSync("b/two", path.join(dir, "a", "one"));
+    fs.symlinkSync("../three", path.join(dir, "a", "b", "two"));
+    assert.equal(realTarget(path.join(dir, "a", "one")), path.join(dir, "a", "three"));
+    fs.symlinkSync("loop2", path.join(dir, "loop1"));
+    fs.symlinkSync("loop1", path.join(dir, "loop2"));
+    assert.equal(typeof realTarget(path.join(dir, "loop1")), "string");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

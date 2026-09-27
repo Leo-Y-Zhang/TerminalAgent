@@ -40,7 +40,8 @@ the gate here is the human.
   `ask_user`.
 - A confirmation gate on the three tools that modify the system — `bash`,
   `write_file`, `edit_file` — bypassable only by explicit opt-in (`--yes`,
-  `AUTO_APPROVE`, or config).
+  `AUTO_APPROVE` from the user's shell). Never by a file in the project
+  directory: a cloned repository's `.mentorrc.json` or `.env` cannot opt in.
 - A real unified diff before any write, not a summary line.
 - A sensitive-path denylist that config can extend but never shrink.
 - Per-model cost accounting, since the model is switchable mid-session.
@@ -74,7 +75,7 @@ the gate here is the human.
       the window is going, and compaction recovers a session that has already
       overflowed the model entirely.
 - [x] The safety-critical logic is covered by tests that never touch the network
-      — 215 of them at v2.2.0, run in CI on every push.
+      — 243 of them, run in CI on every push.
 
 ## One user
 
@@ -121,9 +122,11 @@ sent to the API as part of the request.
 So the category that must never be sent is credentials, and that is what the
 denylist is for. `read_file`, `write_file`, `edit_file`, the `grep` walker *and*
 the write-preview reader all refuse `.env*`, `*.pem`, `.key`, `.p12`, `.pfx`,
-SSH/AWS/GPG/gh directories, and cloud service-account key shapes — matched
+SSH/AWS/GPG/gh directories, cloud service-account key shapes, and a process's
+environment under `/proc/<pid>/environ` (where the API key lives) — matched
 case-insensitively and after resolving symlinks, so a link pointing at
-`~/.ssh/id_rsa` is denied too. The preview path matters specifically: overwriting
+`~/.ssh/id_rsa` is denied too, even a dangling one or a new file under a linked
+directory, both of which a write would follow. The preview path matters specifically: overwriting
 a credential file would otherwise print its old contents to the terminal inside
 the diff.
 

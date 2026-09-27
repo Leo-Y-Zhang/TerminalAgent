@@ -6,7 +6,7 @@
 
 TerminalAgent is a local, terminal-based AI coding assistant in the style of Claude Code. It runs an agentic loop over the Anthropic Messages API: you type a request, Claude plans and calls tools (read/write/edit files, run shell commands, search the codebase), and TerminalAgent executes those calls in your working directory and feeds the results back until the task is done. It bills against your own pay-as-you-go API credits — no subscription.
 
-What separates it from a toy clone is that the safety story is engineered and checkable: the whole agentic core sits behind a dependency-injected seam and is covered by 215 unit tests that never touch the network; every approved edit is checkpointed, so `/undo` restores exactly what was there — and *refuses with a diff* rather than clobber a file you edited since; shell commands are risk-classified before you approve them, with Windows (cmd.exe / PowerShell) threats treated as first-class; and long sessions stay recoverable — `/context` shows exactly where the window is going and `/compact` (or the auto-compact threshold) summarizes the conversation in place, in chunks if it has outgrown the model. The transcript and classifier table below are generated from the real code by the scripts in [`examples/`](examples/) — no API key needed to verify either.
+What separates it from a toy clone is that the safety story is engineered and checkable: the whole agentic core sits behind a dependency-injected seam and is covered by 243 unit tests that never touch the network; every approved edit is checkpointed, so `/undo` restores exactly what was there — and *refuses with a diff* rather than clobber a file you edited since; shell commands are risk-classified before you approve them, with Windows (cmd.exe / PowerShell) threats treated as first-class; and long sessions stay recoverable — `/context` shows exactly where the window is going and `/compact` (or the auto-compact threshold) summarizes the conversation in place, in chunks if it has outgrown the model. The transcript and classifier table below are generated from the real code by the scripts in [`examples/`](examples/) — no API key needed to verify either.
 
 ## What using it looks like
 
@@ -71,7 +71,7 @@ v2 turns the compact v1 clone into a safe, transparent, testable, project-aware 
 - **A tested agentic core.** The loop is extracted behind an injected LLM client and IO seam, and covered by unit tests (tool execution, confirmation approve/deny, error feedback, multi-turn, per-turn usage) using a fake client — no network.
 - **Real diff previews.** Before any `edit_file` / `write_file`, TerminalAgent shows a colored, context-folded `+/-` diff of exactly what will change, not a one-line summary.
 - **A dangerous-command classifier.** `bash` calls are rated normal / caution / danger (`rm -rf /`, `curl | sh`, `dd` to a device, fork bombs, force-push, `sudo`, …) and flagged loudly. The approval gate is unchanged and still required for everything.
-- **Project memory + config.** A `MENTOR.md` (or `AGENTS.md`) in the working directory is folded into the system prompt, and a `.mentorrc.json` sets the model, token budget, auto-approve, and extra denied files.
+- **Project memory + config.** A `MENTOR.md` (or `AGENTS.md`) in the working directory is folded into the system prompt, and a `.mentorrc.json` sets the model, token budget, and extra denied files.
 - **Non-interactive mode.** `terminal-agent -p "…"` or piped stdin answers one prompt and exits with a status code — answer on stdout, tool activity on stderr, so it pipes cleanly.
 - **Session persistence.** `/save`, `/resume`, `/sessions`, and `--resume` store transcripts locally under `.mentor/sessions/` (which is made self-ignoring so they never land in git).
 - **Accurate multi-model cost + `/model`.** `/cost` prices each model you actually used (opus / sonnet / haiku rates), and `/model <id>` switches mid-session.
@@ -115,7 +115,7 @@ Type naturally. Claude can read, write, and edit files in the current working di
 > fix the bug in src/parser.ts where empty strings crash the lexer
 ```
 
-Before any file write, edit, or shell command runs, TerminalAgent prints the exact action — a full colored diff for edits, a heightened warning for risky shell commands — and asks for confirmation (`y/N`). Set `AUTO_APPROVE=1` (or pass `--yes`) to skip the prompt, at the cost of the safety gate.
+Before any file write, edit, or shell command runs, TerminalAgent prints the exact action — a full colored diff for edits, a heightened warning for risky shell commands — and asks for confirmation (`y/N`). Set `AUTO_APPROVE=1` in your shell (or pass `--yes`) to skip the prompt, at the cost of the safety gate. Only you can do that: the project directory is often someone else's repository, so an `autoApprove: true` in its `.mentorrc.json` is refused at startup and an `AUTO_APPROVE` or `ANTHROPIC_BASE_URL` in its `.env` is ignored with a warning.
 
 ### One-shot / scripted mode
 
@@ -160,7 +160,7 @@ Drop a `.mentorrc.json` in your project root to set defaults:
 }
 ```
 
-Environment variables (`MODEL`, `MAX_TOKENS`, `AUTO_APPROVE`) override the file. A malformed config fails loud rather than being silently ignored.
+Environment variables (`MODEL`, `MAX_TOKENS`, `AUTO_APPROVE`) override the file. A malformed config fails loud rather than being silently ignored. `autoApprove` may only be `false` here: the file belongs to the project, and a project must not be able to switch off confirmation, so `true` fails loud too (use `--yes` or `AUTO_APPROVE=1`).
 
 Add a `MENTOR.md` (or `AGENTS.md`) with house rules / architecture notes and TerminalAgent folds it into its system prompt, the way Claude Code reads `CLAUDE.md`.
 
@@ -189,11 +189,12 @@ Add a `MENTOR.md` (or `AGENTS.md`) with house rules / architecture notes and Ter
 
 The tool layer has several guardrails — the reason this is more than a thin API wrapper:
 
-- **Destructive-action confirmation.** `bash`, `write_file`, and `edit_file` require explicit approval before running unless auto-approve is set.
-- **Diff-before-write.** File edits show a real unified diff of the change before you approve it.
+- **Destructive-action confirmation.** `bash`, `write_file`, and `edit_file` require explicit approval before running unless you set auto-approve from your own shell (`--yes` / `AUTO_APPROVE=1`); nothing in the project directory can set it for you.
+- **Diff-before-write.** File edits show a real unified diff of the change before you approve it, and a path that goes through a symlink is shown with the file it really resolves to.
+- **Previews that cannot be repainted.** The command, path and diff you approve, and the tool output shown afterwards, are printed with control and invisible format characters made visible (`\r`, `\x1b[…`, bidi overrides such as `\u202e`, zero-width and tag characters), so a carriage return or escape sequence in model-chosen text cannot repaint the prompt to show a different command from the one that runs.
 - **Dangerous-command classifier.** Risky `bash` commands are flagged (caution/danger) with the reason before you approve them — both POSIX threats (`rm -rf /`, `curl | sh`, `dd`, fork bombs, …) and, since the bash tool runs cmd.exe on Windows, cmd.exe/PowerShell threats (`del /s /q`, `format`, `diskpart`, `reg delete HKLM|HKCU`, `Remove-Item -Recurse -Force`, `vssadmin delete shadows`, critical-process `taskkill /f`, `iwr | iex`). `cmd /c` and unquoted `powershell -Command` wrappers are unwrapped, so a wrapped threat rates like its payload.
 - **Turn-level checkpoints and safe `/undo`.** Every approved file write/edit is checkpointed (pre-image + post-image hash) before it applies, and `/undo` only ever restores a file whose current content still matches what TerminalAgent left there — a file you edited since is refused with a diff, never clobbered.
-- **Sensitive-path denylist.** `read_file`, `write_file`, `edit_file`, and the `grep` walker refuse to touch credential files by name (`.env`, `id_rsa`, `credentials`), by extension (`.pem`, `.key`, `.p12`, `.pfx`), by cloud credential naming pattern (`credentials.json` and its `*-credentials.json` variants, `service-account.json`/`service_account.json`, `gcloud-service-account*.json`, `firebase-adminsdk*.json`), or by directory (`~/.ssh`, `~/.aws`, `~/.gnupg`, …). The list can be extended via `extraDenylist` but never shrunk.
+- **Sensitive-path denylist.** `read_file`, `write_file`, `edit_file`, and the `grep` walker refuse to touch credential files by name (`.env`, `id_rsa`, `credentials`), by extension (`.pem`, `.key`, `.p12`, `.pfx`), by cloud credential naming pattern (`credentials.json` and its `*-credentials.json` variants, `service-account.json`/`service_account.json`, `gcloud-service-account*.json`, `firebase-adminsdk*.json`), or by directory (`~/.ssh`, `~/.aws`, `~/.gnupg`, …), and so is a process environment file (`/proc/<pid>/environ`), which holds the API key. The list can be extended via `extraDenylist` but never shrunk.
 - **ReDoS guard.** `grep` rejects overly long patterns and catastrophic-backtracking shapes, and the file walk has a 10-second budget and a 1000-match cap.
 - **Injection-safe `edit_file`.** An edit only applies when its `old_string` matches exactly once, so an ambiguous or stale target fails loudly instead of editing the wrong place.
 
@@ -236,7 +237,7 @@ Uses `claude-sonnet-4-6` by default (override with `MODEL`, `.mentorrc.json`, `-
 - `/changes` shows only the turns this session recorded in the current directory, and only back to the pruning horizon — once a session exceeds `checkpointTurns` turns with changes, the earliest turns are pruned and drop out of `/changes`. `/undo` operates on the most recent change in the on-disk store, which persists in `.mentor/checkpoints/` — so in a directory where a previous TerminalAgent session made the last recorded change, `/undo` can revert that (the post-image hash check still protects anything edited since).
 - Context figures are honest but approximate: the ~4 chars/token estimate is labelled as such, and the measured figure comes from the **last** API call — after `/model` it can describe a different model's tokenizer until the next turn self-corrects it. The context-window table matches model families, not exact ids; unknown models get a conservative 200K.
 - Auto-compact fires **after** a turn completes, not mid-turn — a single enormous turn can still overflow before the check runs (the overflow error then points at `/compact`, which recovers via chunked summarization). Compaction summarizes the whole history into one message; there is no keep-recent-turns tail, a deliberate choice to avoid splitting tool_use/tool_result pairs. One-shot print mode never auto-compacts.
-- Automated tests (215 at v2.2.0) cover the tool layer and the agentic core (via a fake client), plus the pure modules (diff, config, sessions, checkpoints, pricing, args, safety, context, compact). The thin interactive glue in `src/index.ts` is exercised manually — and by the scripted transcript capture in `examples/`, which drives it end to end through a local model replay.
+- Automated tests (243) cover the tool layer and the agentic core (via a fake client), plus the pure modules (diff, config, sessions, checkpoints, pricing, args, safety, context, compact). The thin interactive glue in `src/index.ts` is exercised manually — and by the scripted transcript capture in `examples/`, which drives it end to end through a local model replay. `src/approval-gate.test.ts` does the same for one-shot mode, to prove that nothing but the user can switch the confirmation gate off.
 
 ## Development
 
@@ -272,6 +273,7 @@ src/
 ├── diff.ts        # pure line diff for edit/write previews
 ├── safety.ts      # dangerous-command classifier (POSIX + Windows rules)
 ├── config.ts      # .mentorrc.json + MENTOR.md loading
+├── env.ts         # .env loading (keys that gate the tool are shell-only)
 ├── session.ts     # local session persistence
 ├── checkpoints.ts # turn-level file checkpoints behind /undo and /changes
 ├── pricing.ts     # per-model token pricing

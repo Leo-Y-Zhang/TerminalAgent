@@ -134,7 +134,9 @@ There are no roles here, and yet two states are gated.
 **Approval** is the only route from a model's request to a filesystem or shell
 change. It is bypassed only by `autoApprove`, which the banner announces in
 yellow at startup, and which one-shot mode replaces with *skip* rather than
-*allow* — the failure direction is closed.
+*allow* — the failure direction is closed. Only the user can set it (`--yes`, or
+`AUTO_APPROVE` in their own shell); the project's `.mentorrc.json` and `.env`
+cannot, because the project is often someone else's repository.
 
 **`/undo`** is gated by content rather than identity: a change reverts only while
 the file still hashes to the recorded post-image. The moment the user edits the
